@@ -148,39 +148,64 @@ def cmd_history(args, state):
     print(f"\n  Use /history <n> to resume a conversation\n")
 
 
+INIT_PROMPT = """\
+Explore this project and generate an AGENTS.md file for it. This file will be \
+loaded into your system prompt on future sessions, so write instructions that \
+would help you (an AI coding assistant) work effectively on this project.
+
+Steps:
+1. Use glob_search to find key files (configs, source code, READMEs, etc.)
+2. Use read_file to inspect the most important ones (package.json, pyproject.toml, \
+   README, main entry points, etc.)
+3. Based on what you find, use write_file to create AGENTS.md with these sections:
+
+   # Project Instructions
+   ## Project Overview — what this project does, tech stack, purpose
+   ## Architecture — key files/modules and how they connect
+   ## Conventions — coding style, naming patterns, frameworks used
+   ## Common Commands — build, test, run, deploy commands
+   ## Important Notes — gotchas, warnings, things to remember
+
+Keep it concise (under 200 lines). Be specific to THIS project, not generic. \
+If the project is empty or you can't determine enough, ask the user what the \
+project is about before writing.
+
+IMPORTANT: Write the file as AGENTS.md in the current directory.
+"""
+
+
 def cmd_init(args, state):
-    """Create a starter AGENTS.md in the current directory."""
+    """Scan the project and generate an AGENTS.md using the model."""
+    from cuddlewrap.agent import run_turn
+    from cuddlewrap.tools import TOOLS, TOOL_MAP
+
     filename = "AGENTS.md"
     if os.path.isfile(filename):
-        display.harness_info(f"{filename} already exists")
+        display.harness_info(f"{filename} already exists. Delete it first to regenerate.")
         return
 
-    template = """# Project Instructions
+    display.harness_info("scanning project to generate AGENTS.md...")
 
-<!-- CuddleWrap reads this file at startup and follows these instructions. -->
-<!-- Keep it concise — under 300 lines. -->
+    # Run an agentic turn with the init prompt
+    init_messages = [
+        {"role": "system", "content": state["messages"][0]["content"]},
+        {"role": "user", "content": INIT_PROMPT},
+    ]
 
-## Project Overview
-<!-- Describe what this project does and its tech stack -->
-
-## Architecture
-<!-- Key files, modules, and how they connect -->
-
-## Conventions
-<!-- Coding style, naming, patterns to follow -->
-
-## Common Commands
-<!-- Build, test, run, deploy commands -->
-
-## Important Notes
-<!-- Warnings, gotchas, things the model should know -->
-"""
     try:
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(template)
-        display.harness_info(f"created {filename} — edit it with your project instructions")
+        run_turn(init_messages, state["model"], TOOLS, TOOL_MAP)
+    except KeyboardInterrupt:
+        display.harness_info("interrupted")
+        return
     except Exception as e:
-        display.harness_error(f"failed to create {filename}: {e}")
+        display.harness_error(f"init failed: {e}")
+        return
+
+    if os.path.isfile(filename):
+        display.harness_info(f"created {filename} — it will be loaded on next startup")
+        display.harness_info("review and edit it to match your project's conventions")
+    else:
+        display.harness_error("model did not create AGENTS.md — try again or create it manually")
 
 
 COMMANDS = {
