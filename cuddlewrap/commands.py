@@ -149,28 +149,28 @@ def cmd_history(args, state):
 
 
 INIT_PROMPT = """\
-Explore this project and generate an AGENTS.md file for it. This file will be \
-loaded into your system prompt on future sessions, so write instructions that \
-would help you (an AI coding assistant) work effectively on this project.
+Generate an AGENTS.md file for this project. This file is loaded into your \
+system prompt on future sessions, so write instructions that help you (an AI \
+coding assistant) work effectively on this project.
 
-Steps:
-1. Use glob_search to find key files (configs, source code, READMEs, etc.)
-2. Use read_file to inspect the most important ones (package.json, pyproject.toml, \
-   README, main entry points, etc.)
-3. Based on what you find, use write_file to create AGENTS.md with these sections:
+Step 1: Use glob_search with pattern '*' to see what files exist in the current directory.
 
-   # Project Instructions
-   ## Project Overview — what this project does, tech stack, purpose
-   ## Architecture — key files/modules and how they connect
-   ## Conventions — coding style, naming patterns, frameworks used
-   ## Common Commands — build, test, run, deploy commands
-   ## Important Notes — gotchas, warnings, things to remember
+Step 2: If there ARE files, use read_file to inspect the key ones (configs, READMEs, \
+entry points), then use write_file to create AGENTS.md with these sections:
+  # Project Instructions
+  ## Project Overview — what this project does, tech stack, purpose
+  ## Architecture — key files/modules and how they connect
+  ## Conventions — coding style, naming patterns, frameworks used
+  ## Common Commands — build, test, run, deploy commands
+  ## Important Notes — gotchas, warnings, things to remember
 
-Keep it concise (under 200 lines). Be specific to THIS project, not generic. \
-If the project is empty or you can't determine enough, ask the user what the \
-project is about before writing.
+Step 2 (alternative): If the directory is EMPTY or has no meaningful files, \
+DO NOT try to explore parent directories or other paths. Instead, respond with \
+a message asking the user to describe what the project is about, what tech stack \
+they plan to use, and any conventions they want to follow. Then STOP and wait. \
+Do NOT create a generic AGENTS.md — it must be specific to this project.
 
-IMPORTANT: Write the file as AGENTS.md in the current directory.
+Keep it concise (under 200 lines). Write the file as AGENTS.md in the current directory.
 """
 
 
