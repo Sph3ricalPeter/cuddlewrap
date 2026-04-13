@@ -86,11 +86,14 @@ That's it. You'll see the banner, a prompt, and a status bar at the bottom.
 
 The model has access to:
 
-| Tool | Description |
-|------|-------------|
-| `bash` | Execute shell commands |
-| `write_file` | Create or overwrite files |
-| `read_file` | Read file contents with line numbers |
+| Tool | Description | Permission |
+|------|-------------|------------|
+| `bash` | Execute shell commands | Requires confirmation |
+| `write_file` | Create or overwrite files | Requires confirmation |
+| `edit_file` | Search-and-replace in files | Requires confirmation |
+| `read_file` | Read file contents with line numbers | Auto-approved |
+| `glob_search` | Find files by name pattern | Auto-approved |
+| `grep_search` | Search file contents by regex | Auto-approved |
 
 ## Architecture
 
@@ -101,16 +104,17 @@ cuddlewrap/
     ├── __init__.py      # Version
     ├── main.py          # Entry point, REPL loop, @file resolution
     ├── agent.py         # Agentic loop, LLM calls, spinner
-    ├── tools.py         # Tool definitions (bash, write_file, read_file)
+    ├── tools.py         # Tool definitions (bash, write_file, read_file, edit_file, glob_search, grep_search)
     ├── commands.py      # Slash command dispatch
     └── display.py       # Terminal formatting, prompt_toolkit toolbar
 ```
 
 ## Roadmap
 
-- [ ] Streaming responses
-- [ ] `edit_file` tool (search-and-replace)
-- [ ] `glob_search` and `grep_search` tools
+- [x] ~~`edit_file` tool (search-and-replace)~~
+- [x] ~~`glob_search` and `grep_search` tools~~
+- [x] ~~Permission tiers (auto-approve reads, confirm writes)~~
+- [x] ~~Context truncation (10K char limit per tool output)~~
 - [ ] Conversation history persistence
 - [ ] Config file (`~/.cuddlewrap/config.toml`)
 - [ ] Multi-provider support (Anthropic, OpenAI)

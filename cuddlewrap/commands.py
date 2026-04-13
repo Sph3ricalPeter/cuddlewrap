@@ -39,6 +39,14 @@ Commands:
 Usage:
   @path/to/file        Include file contents in your message
   You can use multiple @file references in one message.
+
+Tools (available to the model):
+  bash                 Execute shell commands (requires confirmation)
+  write_file           Create or overwrite files (requires confirmation)
+  edit_file            Search-and-replace in files (requires confirmation)
+  read_file            Read file contents (auto-approved)
+  glob_search          Find files by name pattern (auto-approved)
+  grep_search          Search file contents by regex (auto-approved)
 """
     )
 

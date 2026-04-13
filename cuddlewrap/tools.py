@@ -1,7 +1,17 @@
 """Tool definitions for CuddleWrap."""
 
+import fnmatch
 import os
+import re
 import subprocess
+
+# Tools that are safe to auto-approve (read-only)
+SAFE_TOOLS = {"read_file", "glob_search", "grep_search"}
+# Tools that modify state (need confirmation)
+DANGEROUS_TOOLS = {"bash", "write_file", "edit_file"}
+
+# Truncate tool output sent to the model beyond this limit
+MAX_OUTPUT_CHARS = 10_000
 
 
 def bash(command: str) -> str:
@@ -78,5 +88,153 @@ def read_file(path: str) -> str:
         return f"[error: {e}]"
 
 
-TOOLS = [bash, write_file, read_file]
-TOOL_MAP = {"bash": bash, "write_file": write_file, "read_file": read_file}
+def edit_file(path: str, old_text: str, new_text: str) -> str:
+    """Replace a specific text occurrence in a file.
+
+    Args:
+        path (str): The file path to edit
+        old_text (str): The exact text to find and replace
+        new_text (str): The text to replace it with
+
+    Returns:
+        str: Confirmation with line numbers affected, or an error message
+    """
+    try:
+        abs_path = os.path.abspath(path)
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+
+        count = content.count(old_text)
+        if count == 0:
+            return f"[error: old_text not found in {path}]"
+        if count > 1:
+            return f"[error: old_text found {count} times in {path} — must be unique. Provide more context.]"
+
+        # Find the line number of the match
+        before_match = content[: content.index(old_text)]
+        start_line = before_match.count("\n") + 1
+        end_line = start_line + old_text.count("\n")
+
+        new_content = content.replace(old_text, new_text, 1)
+        with open(abs_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        new_line_count = new_text.count("\n") + 1
+        return f"Edited {abs_path} lines {start_line}-{end_line} ({new_line_count} new lines)"
+    except FileNotFoundError:
+        return f"[error: file not found: {path}]"
+    except Exception as e:
+        return f"[error: {e}]"
+
+
+def glob_search(pattern: str, path: str = ".") -> str:
+    """Find files matching a glob pattern recursively.
+
+    Args:
+        pattern (str): The glob pattern to match (e.g. '*.py', '**/*.ts')
+        path (str): The directory to search in (default: current directory)
+
+    Returns:
+        str: Matching file paths, one per line, or a message if none found
+    """
+    try:
+        base = os.path.abspath(path)
+        matches = []
+        for root, dirs, files in os.walk(base):
+            # Skip hidden dirs and common junk
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in (
+                "node_modules", "__pycache__", ".git", "venv", ".venv",
+            )]
+            for filename in files:
+                if fnmatch.fnmatch(filename, pattern):
+                    full = os.path.join(root, filename)
+                    rel = os.path.relpath(full, base)
+                    matches.append(rel)
+        if not matches:
+            return f"No files matching '{pattern}' found in {base}"
+        matches.sort()
+        return "\n".join(matches)
+    except Exception as e:
+        return f"[error: {e}]"
+
+
+def grep_search(pattern: str, path: str = ".", include: str = "") -> str:
+    """Search file contents for lines matching a regex pattern.
+
+    Args:
+        pattern (str): The regex pattern to search for
+        path (str): The directory or file to search in (default: current directory)
+        include (str): Optional glob to filter files (e.g. '*.py')
+
+    Returns:
+        str: Matching lines with file paths and line numbers
+    """
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        return f"[error: invalid regex: {e}]"
+
+    try:
+        base = os.path.abspath(path)
+        results = []
+        max_results = 50
+
+        if os.path.isfile(base):
+            files_to_search = [base]
+        else:
+            files_to_search = []
+            for root, dirs, files in os.walk(base):
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d not in (
+                    "node_modules", "__pycache__", ".git", "venv", ".venv",
+                )]
+                for filename in files:
+                    if include and not fnmatch.fnmatch(filename, include):
+                        continue
+                    files_to_search.append(os.path.join(root, filename))
+
+        for filepath in files_to_search:
+            if len(results) >= max_results:
+                break
+            try:
+                with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                    for i, line in enumerate(f, 1):
+                        if compiled.search(line):
+                            rel = os.path.relpath(filepath, base) if not os.path.isfile(base) else os.path.basename(filepath)
+                            results.append(f"{rel}:{i}: {line.rstrip()}")
+                            if len(results) >= max_results:
+                                break
+            except (PermissionError, OSError):
+                continue
+
+        if not results:
+            return f"No matches for '{pattern}' in {base}"
+
+        output = "\n".join(results)
+        if len(results) >= max_results:
+            output += f"\n... (limited to {max_results} results)"
+        return output
+    except Exception as e:
+        return f"[error: {e}]"
+
+
+def truncate_output(result):
+    """Truncate tool output if it exceeds MAX_OUTPUT_CHARS for context management."""
+    if len(result) <= MAX_OUTPUT_CHARS:
+        return result
+    half = MAX_OUTPUT_CHARS // 2
+    return (
+        result[:half]
+        + f"\n\n... [{len(result) - MAX_OUTPUT_CHARS} chars truncated] ...\n\n"
+        + result[-half:]
+    )
+
+
+TOOLS = [bash, write_file, read_file, edit_file, glob_search, grep_search]
+TOOL_MAP = {
+    "bash": bash,
+    "write_file": write_file,
+    "read_file": read_file,
+    "edit_file": edit_file,
+    "glob_search": glob_search,
+    "grep_search": grep_search,
+}

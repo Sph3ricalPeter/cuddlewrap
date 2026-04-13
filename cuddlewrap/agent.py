@@ -8,6 +8,7 @@ import ollama
 
 from cuddlewrap import display
 from cuddlewrap.display import Spinner
+from cuddlewrap.tools import SAFE_TOOLS, truncate_output
 
 MAX_ITERATIONS = 15
 _model_ctx_cache = {}
@@ -21,8 +22,10 @@ def _build_system_prompt():
 
     return (
         f"You are an expert software engineer. You have access to tools to execute "
-        f"shell commands, read files, and write files on the user's machine.\n"
-        f"ALWAYS use write_file to create or edit files. NEVER use echo/type redirects to write files.\n\n"
+        f"shell commands, read files, write files, edit files, and search the codebase.\n"
+        f"ALWAYS use write_file to create files and edit_file to modify existing files.\n"
+        f"NEVER use echo/type redirects to write files.\n"
+        f"Use glob_search to find files by name and grep_search to find text in files.\n\n"
         f"Environment:\n"
         f"  OS: {os_name}\n"
         f"  Shell: {shell}\n"
@@ -146,18 +149,26 @@ def run_turn(messages, model, tools, tool_map):
             # Build compact display of the tool + args
             if name == "bash":
                 args_display = args.get("command", "")
-            elif name == "write_file":
+            elif name in ("write_file", "read_file", "edit_file"):
                 args_display = args.get("path", "")
-            elif name == "read_file":
-                args_display = args.get("path", "")
+            elif name == "glob_search":
+                args_display = args.get("pattern", "")
+            elif name == "grep_search":
+                args_display = args.get("pattern", "")
+                inc = args.get("include", "")
+                if inc:
+                    args_display += f" ({inc})"
             else:
                 args_display = ", ".join(f"{k}={v!r}" for k, v in args.items())
 
             # Show tool call (compact single line)
             display.tool_call(name, args_display)
 
-            # Confirm — prompt disappears after, replaced by [cw] status
-            choice = display.confirm_tool(name)
+            # Permission tiers: safe tools auto-approve, dangerous tools ask
+            if name in SAFE_TOOLS:
+                choice = "y"
+            else:
+                choice = display.confirm_tool(name)
 
             if choice != "y":
                 result = "[user declined to execute this command]"
@@ -169,16 +180,19 @@ def run_turn(messages, model, tools, tool_map):
                 else:
                     result = f"[error: unknown tool '{name}']"
 
-                # Show result (sanitized + truncated) tight under the tool call
+                # Show result (sanitized + display-truncated) tight under the tool call
                 sanitized = _sanitize(result)
                 if len(sanitized) > 500:
                     sanitized = sanitized[:500] + f"\n... ({len(result)} chars total)"
                 display.tool_output(sanitized)
 
+            # Truncate for context window before appending to messages
+            result_for_context = truncate_output(result)
+
             # Append tool result to conversation
             messages.append({
                 "role": "tool",
-                "content": str(result),
+                "content": str(result_for_context),
                 "tool_name": name,
             })
 
