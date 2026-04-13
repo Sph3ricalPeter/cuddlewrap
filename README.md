@@ -1,6 +1,6 @@
 # CuddleWrap
 
-> **⚠️ Educational project** — I'm building this to learn how LLM tool-calling harnesses work under the hood. Not intended as a production tool. Expect rough edges, experiments, and frequent rewrites.
+> **⚠️ Educational project** — Intended for f*cking around with LLM tool-calling harnesses and get familiar with how they work under the hood. Not intended as a production tool - it might accidentaly delete your cute cat images. Use with extra caution.
 
 A minimal LLM tool-calling harness for your terminal. Local-first with Ollama.
 
