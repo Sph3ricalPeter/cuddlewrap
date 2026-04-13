@@ -1,5 +1,6 @@
 """Tool definitions for CuddleWrap."""
 
+import difflib
 import fnmatch
 import json
 import os
@@ -132,10 +133,29 @@ def write_file(path: str, content: str) -> str:
         parent = os.path.dirname(abs_path)
         if parent and not os.path.exists(parent):
             os.makedirs(parent)
+
+        # Read old content for diff (empty if new file)
+        old_lines = []
+        if os.path.isfile(abs_path):
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                old_lines = f.readlines()
+
         with open(abs_path, "w", encoding="utf-8") as f:
             f.write(content)
-        lines = content.count("\n") + 1
-        return f"Wrote {lines} lines to {abs_path}"
+
+        # Generate diff
+        new_lines = content.splitlines(keepends=True)
+        diff = difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{path}" if old_lines else "/dev/null",
+            tofile=f"b/{path}",
+            lineterm="",
+        )
+        diff_text = "\n".join(line.rstrip() for line in diff)
+
+        line_count = content.count("\n") + 1
+        summary = f"Wrote {line_count} lines to {path}"
+        return f"{summary}\n{diff_text}" if diff_text else summary
     except ValueError as e:
         return f"[blocked: {e}]"
     except Exception as e:
@@ -174,7 +194,7 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         new_text (str): The text to replace it with
 
     Returns:
-        str: Confirmation with line numbers affected, or an error message
+        str: A unified diff showing the change, or an error message
     """
     try:
         abs_path = _check_sandbox(path)
@@ -187,16 +207,22 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         if count > 1:
             return f"[error: old_text found {count} times in {path} — must be unique. Provide more context.]"
 
-        before_match = content[: content.index(old_text)]
-        start_line = before_match.count("\n") + 1
-        end_line = start_line + old_text.count("\n")
-
         new_content = content.replace(old_text, new_text, 1)
+
+        # Generate unified diff
+        old_lines = content.splitlines(keepends=True)
+        new_lines = new_content.splitlines(keepends=True)
+        diff = difflib.unified_diff(
+            old_lines, new_lines,
+            fromfile=f"a/{path}", tofile=f"b/{path}",
+            lineterm="",
+        )
+        diff_text = "\n".join(line.rstrip() for line in diff)
+
         with open(abs_path, "w", encoding="utf-8") as f:
             f.write(new_content)
 
-        new_line_count = new_text.count("\n") + 1
-        return f"Edited {abs_path} lines {start_line}-{end_line} ({new_line_count} new lines)"
+        return diff_text if diff_text else f"Edited {path} (no visible diff)"
     except ValueError as e:
         return f"[blocked: {e}]"
     except FileNotFoundError:

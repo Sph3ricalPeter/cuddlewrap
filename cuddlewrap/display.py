@@ -423,15 +423,45 @@ def tool_call(tool_name, args_display):
     print(f"{C.YELLOW}▶ {tool_name}{C.RESET} {args_display}")
 
 
+def _is_diff(text):
+    """Check if text looks like a unified diff."""
+    return text.startswith("---") or text.startswith("+++") or text.startswith("@@") or text.startswith("diff ")
+
+
+def _print_diff_line(line):
+    """Print a single diff line with appropriate coloring."""
+    if line.startswith("+++") or line.startswith("---"):
+        print(f"  {C.BOLD}{line}{C.RESET}")
+    elif line.startswith("@@"):
+        print(f"  {C.CYAN}{line}{C.RESET}")
+    elif line.startswith("+"):
+        print(f"  {C.GREEN}{line}{C.RESET}")
+    elif line.startswith("-"):
+        print(f"  {C.RED}{line}{C.RESET}")
+    else:
+        print(f"  {C.DIM}{line}{C.RESET}")
+
+
 def tool_output(text):
-    """Print tool output — dim, truncated to last N lines, closed with a rule."""
+    """Print tool output — dim, truncated to last N lines, closed with a rule.
+
+    Diff output gets syntax coloring (red/green/cyan).
+    """
     lines = text.split("\n")
-    if len(lines) > TOOL_OUTPUT_MAX_LINES:
+
+    # Check if this is diff output
+    has_diff = any(_is_diff(line) for line in lines[:5])
+
+    if not has_diff and len(lines) > TOOL_OUTPUT_MAX_LINES:
         skipped = len(lines) - TOOL_OUTPUT_MAX_LINES
         print(f"  {C.DIM}({skipped} lines hidden){C.RESET}")
         lines = lines[-TOOL_OUTPUT_MAX_LINES:]
+
     for line in lines:
-        print(f"  {C.DIM}{line}{C.RESET}")
+        if has_diff:
+            _print_diff_line(line)
+        else:
+            print(f"  {C.DIM}{line}{C.RESET}")
     _hr()
 
 
