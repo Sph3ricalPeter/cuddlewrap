@@ -117,6 +117,30 @@ Settings:
     )
 
 
+def _tool_args_display(name, args):
+    """Build compact display string for a tool call (same logic as agent.py)."""
+    if name == "bash":
+        return args.get("command", "")
+    elif name in ("write_file", "read_file", "edit_file"):
+        return args.get("path", "")
+    elif name == "glob_search":
+        return args.get("pattern", "")
+    elif name == "grep_search":
+        s = args.get("pattern", "")
+        inc = args.get("include", "")
+        return f"{s} ({inc})" if inc else s
+    elif name == "web_search":
+        return args.get("query", "")
+    elif name == "python_run":
+        return args.get("script", "")
+    elif name == "pip_install":
+        return args.get("packages", "")
+    elif name in ("format_code", "format_check", "lint_check", "lint_fix"):
+        return args.get("path", ".")
+    else:
+        return ", ".join(f"{k}={v!r}" for k, v in args.items() if k != "content")
+
+
 def _replay_conversation(messages):
     """Replay past conversation exactly as it appeared live. No truncation."""
     for msg in messages:
@@ -134,7 +158,7 @@ def _replay_conversation(messages):
             for tc in tool_calls:
                 name = tc.get("name", "?")
                 tc_args = tc.get("arguments", {})
-                display.tool_call(name, str(tc_args).strip("{}"))
+                display.tool_call(name, _tool_args_display(name, tc_args))
         elif role == "tool":
             display.tool_output(content)
 
