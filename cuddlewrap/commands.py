@@ -63,11 +63,16 @@ def cmd_exit(args, state):
 
 
 def cmd_clear(args, state):
-    """Clear conversation history and screen."""
+    """Save current conversation to history, then start a new one."""
     from cuddlewrap.agent import SYSTEM_PROMPT
+    from cuddlewrap.history import save_conversation
+    # Save the current conversation before wiping
+    saved = save_conversation(state["messages"])
     state["messages"] = [{"role": "system", "content": SYSTEM_PROMPT}]
     os.system("cls" if os.name == "nt" else "clear")
-    display.harness_info("conversation cleared")
+    if saved:
+        display.harness_info("conversation saved to history")
+    display.harness_info("new conversation started")
     print()
 
 

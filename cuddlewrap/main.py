@@ -128,6 +128,7 @@ def main():
             print()
 
 
+
 def _save_and_exit(state):
     """Save conversation history and print goodbye."""
     saved = save_conversation(state["messages"])
