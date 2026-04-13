@@ -81,6 +81,9 @@ That's it. You'll see the banner, a prompt, and a status bar at the bottom.
 | `/model list` | List all locally available models |
 | `/model <name>` | Switch to a different model |
 | `/settings` | Show current settings |
+| `/history` | List recent conversations |
+| `/history <n>` | Resume conversation #n |
+| `/init` | Create a starter AGENTS.md template |
 | `/clear` | Clear conversation history and screen |
 | `/exit` | Exit CuddleWrap |
 
@@ -97,18 +100,35 @@ The model has access to:
 | `glob_search` | Find files by name pattern | Auto-approved |
 | `grep_search` | Search file contents by regex | Auto-approved |
 
+### AGENTS.md
+
+Drop an `AGENTS.md` file in your project root to give the model project-specific instructions. It's loaded into the system prompt at startup — like Claude Code's `CLAUDE.md`.
+
+```bash
+cw
+› /init    # creates a starter AGENTS.md template
+```
+
+CuddleWrap checks two locations:
+1. `~/.cuddlewrap/AGENTS.md` — user-level defaults (applied to all projects)
+2. `./AGENTS.md` — project-level instructions (takes priority)
+
 ## Architecture
 
 ```
 cuddlewrap/
 ├── pyproject.toml      # Package config, registers `cw` command
+├── AGENTS.md           # Project instructions (optional, loaded into system prompt)
 └── cuddlewrap/
     ├── __init__.py      # Version
     ├── main.py          # Entry point, REPL loop, @file resolution
     ├── agent.py         # Agentic loop, LLM calls, spinner
-    ├── tools.py         # Tool definitions (bash, write_file, read_file, edit_file, glob_search, grep_search)
+    ├── tools.py         # Tool definitions (6 tools)
     ├── commands.py      # Slash command dispatch
-    └── display.py       # Terminal formatting, prompt_toolkit toolbar
+    ├── display.py       # Terminal formatting, prompt_toolkit toolbar
+    ├── config.py        # Config file loading (~/.cuddlewrap/config.toml)
+    ├── history.py       # Conversation persistence (~/.cuddlewrap/history/)
+    └── agentsmd.py      # AGENTS.md loader (project + user level)
 ```
 
 ## Roadmap
@@ -117,8 +137,12 @@ cuddlewrap/
 - [x] ~~`glob_search` and `grep_search` tools~~
 - [x] ~~Permission tiers (auto-approve reads, confirm writes)~~
 - [x] ~~Context truncation (10K char limit per tool output)~~
-- [ ] Conversation history persistence
-- [ ] Config file (`~/.cuddlewrap/config.toml`)
+- [x] ~~Path sandboxing (tools jailed to project directory)~~
+- [x] ~~Autocomplete (commands, model names, @file paths)~~
+- [x] ~~Conversation history persistence~~
+- [x] ~~Config file (`~/.cuddlewrap/config.toml`)~~
+- [x] ~~AGENTS.md support (project instructions in system prompt)~~
+- [ ] Web search tool
 - [ ] Multi-provider support (Anthropic, OpenAI)
 
 ## License

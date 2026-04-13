@@ -153,8 +153,10 @@ class Spinner:
 
 _COMMANDS = {
     "/help": "Show available commands",
-    "/model": "Show or switch model (/model list, /model <name>)",
+    "/model": "Show or switch model",
     "/settings": "Show current settings",
+    "/history": "List or resume past conversations",
+    "/init": "Create AGENTS.md template",
     "/clear": "Clear conversation and screen",
     "/exit": "Exit CuddleWrap",
 }

@@ -6,9 +6,9 @@ import re
 from cuddlewrap import display
 from cuddlewrap.agent import SYSTEM_PROMPT, run_turn
 from cuddlewrap.commands import parse_command, run_command
+from cuddlewrap.config import load_config, ensure_config_dir
+from cuddlewrap.history import save_conversation
 from cuddlewrap.tools import TOOLS, TOOL_MAP
-
-DEFAULT_MODEL = "devstral-small-2"
 
 BANNER = rf"""
 {display.C.CYAN}   ______          __    ____     _       __
@@ -46,22 +46,31 @@ def main():
     os.system("cls" if os.name == "nt" else "clear")
     print(BANNER)
 
+    # Load config
+    ensure_config_dir()
+    config = load_config()
+
     state = {
-        "model": DEFAULT_MODEL,
-        "max_iterations": 15,
+        "model": config.get("model", "devstral-small-2"),
+        "max_iterations": config.get("max_iterations", 15),
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}],
     }
+
+    # Check for AGENTS.md
+    has_agents = os.path.isfile("AGENTS.md") or os.path.isfile("agents.md")
 
     # Initialize toolbar
     display.update_toolbar(model=state["model"], context="ready")
     display.harness_info(f"type /help for commands, @file to include files")
+    if has_agents:
+        display.harness_info("loaded AGENTS.md")
     print()
 
     while True:
         try:
             user_input = display.get_input()
         except (KeyboardInterrupt, EOFError):
-            print("\nGoodbye!")
+            _save_and_exit(state)
             break
 
         if not user_input:
@@ -76,7 +85,7 @@ def main():
                 continue
             result = run_command(cmd_name, args, state)
             if result == "EXIT":
-                print("Goodbye!")
+                _save_and_exit(state)
                 break
             # Update toolbar in case model changed
             display.update_toolbar(model=state["model"])
@@ -104,6 +113,14 @@ def main():
         except Exception as e:
             display.harness_error(str(e))
             print()
+
+
+def _save_and_exit(state):
+    """Save conversation history and print goodbye."""
+    saved = save_conversation(state["messages"])
+    if saved:
+        display.harness_info(f"conversation saved")
+    print("Goodbye!")
 
 
 if __name__ == "__main__":

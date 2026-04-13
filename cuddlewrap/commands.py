@@ -5,6 +5,10 @@ import re
 
 import ollama
 
+from cuddlewrap import display
+from cuddlewrap.config import save_config, CONFIG_FILE
+from cuddlewrap.history import list_conversations, load_conversation
+
 
 def parse_command(line):
     """Parse a /command from user input.
@@ -16,7 +20,6 @@ def parse_command(line):
     """
     if not line.startswith("/"):
         return None
-    # It starts with / so the user intended a command
     match = re.match(r"^/(\w+)(?:\s+(.*))?$", line)
     if not match:
         return None, f"Invalid command: '{line}'. Type /help for commands"
@@ -33,6 +36,9 @@ Commands:
   /model list          List all available models
   /model <name>        Switch to a different model
   /settings            Show current settings
+  /history             List recent conversations
+  /history <n>         Resume conversation #n
+  /init                Create AGENTS.md in current directory
   /clear               Clear conversation history and screen
   /exit                Exit CuddleWrap
 
@@ -41,7 +47,7 @@ Usage:
   You can use multiple @file references in one message.
 
 Tools (available to the model):
-  bash                 Execute shell commands (requires confirmation)
+  bash                 Execute shell commands (always requires confirmation)
   write_file           Create or overwrite files (requires confirmation)
   edit_file            Search-and-replace in files (requires confirmation)
   read_file            Read file contents (auto-approved)
@@ -58,9 +64,11 @@ def cmd_exit(args, state):
 
 def cmd_clear(args, state):
     """Clear conversation history and screen."""
-    state["messages"] = [state["messages"][0]]  # Keep system prompt
+    from cuddlewrap.agent import SYSTEM_PROMPT
+    state["messages"] = [{"role": "system", "content": SYSTEM_PROMPT}]
     os.system("cls" if os.name == "nt" else "clear")
-    print("[cw: conversation cleared]\n")
+    display.harness_info("conversation cleared")
+    print()
 
 
 def cmd_model(args, state):
@@ -76,25 +84,103 @@ def cmd_model(args, state):
                 print(f"    {name:<30} {size_gb:.1f} GB{marker}")
             print()
         except Exception as e:
-            print(f"  [cw: error listing models: {e}]\n")
+            display.harness_error(f"error listing models: {e}")
     elif args:
         state["model"] = args
-        print(f"[cw: switched to model '{args}']\n")
+        display.harness_info(f"switched to model '{args}'")
+        # Persist to config
+        try:
+            save_config({"model": args})
+        except Exception:
+            pass
     else:
-        print(f"[cw: current model is '{state['model']}']\n")
+        print(f"\n  Current model: {state['model']}")
         print(f"  Tip: /model list — show all available models\n")
 
 
 def cmd_settings(args, state):
     """Show current settings."""
+    agents_md = "found" if os.path.isfile("AGENTS.md") or os.path.isfile("agents.md") else "not found"
     print(
         f"""
 Settings:
   model:          {state['model']}
   max_iterations: {state['max_iterations']}
   timeout:        120s
+  config file:    {CONFIG_FILE}
+  AGENTS.md:      {agents_md}
 """
     )
+
+
+def cmd_history(args, state):
+    """List or resume past conversations."""
+    conversations = list_conversations()
+
+    if not conversations:
+        display.harness_info("no conversation history yet")
+        return
+
+    if args:
+        # Resume conversation #n
+        try:
+            idx = int(args) - 1
+            if 0 <= idx < len(conversations):
+                filepath, slug, ts = conversations[idx]
+                messages = load_conversation(filepath)
+                if messages:
+                    state["messages"] = messages
+                    display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
+                    display.harness_info(f"{len(messages)} messages loaded")
+                else:
+                    display.harness_error("failed to load conversation")
+            else:
+                display.harness_error(f"invalid number. Use 1-{len(conversations)}")
+        except ValueError:
+            display.harness_error("usage: /history <number>")
+        return
+
+    # List conversations
+    print("\n  Recent conversations:")
+    for i, (filepath, slug, ts) in enumerate(conversations, 1):
+        date = ts.strftime("%Y-%m-%d %H:%M")
+        print(f"    {i:>3}. {date}  {slug}")
+    print(f"\n  Use /history <n> to resume a conversation\n")
+
+
+def cmd_init(args, state):
+    """Create a starter AGENTS.md in the current directory."""
+    filename = "AGENTS.md"
+    if os.path.isfile(filename):
+        display.harness_info(f"{filename} already exists")
+        return
+
+    template = """# Project Instructions
+
+<!-- CuddleWrap reads this file at startup and follows these instructions. -->
+<!-- Keep it concise — under 300 lines. -->
+
+## Project Overview
+<!-- Describe what this project does and its tech stack -->
+
+## Architecture
+<!-- Key files, modules, and how they connect -->
+
+## Conventions
+<!-- Coding style, naming, patterns to follow -->
+
+## Common Commands
+<!-- Build, test, run, deploy commands -->
+
+## Important Notes
+<!-- Warnings, gotchas, things the model should know -->
+"""
+    try:
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(template)
+        display.harness_info(f"created {filename} — edit it with your project instructions")
+    except Exception as e:
+        display.harness_error(f"failed to create {filename}: {e}")
 
 
 COMMANDS = {
@@ -103,6 +189,8 @@ COMMANDS = {
     "clear": cmd_clear,
     "model": cmd_model,
     "settings": cmd_settings,
+    "history": cmd_history,
+    "init": cmd_init,
 }
 
 
@@ -110,6 +198,6 @@ def run_command(cmd_name, args, state):
     """Execute a slash command. Returns 'EXIT' to quit, else None."""
     handler = COMMANDS.get(cmd_name)
     if not handler:
-        print(f"[cw: unknown command '/{cmd_name}'. Type /help for commands]\n")
+        display.harness_error(f"unknown command '/{cmd_name}'. Type /help for commands")
         return None
     return handler(args, state)

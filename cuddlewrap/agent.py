@@ -7,6 +7,7 @@ import re
 import ollama
 
 from cuddlewrap import display
+from cuddlewrap.agentsmd import load_agents_md
 from cuddlewrap.display import Spinner
 from cuddlewrap.tools import SAFE_TOOLS, ALWAYS_CONFIRM_TOOLS, truncate_output
 
@@ -35,6 +36,13 @@ def _build_system_prompt():
         f"tasks the user requests. Always explain what you are about to do before calling "
         f"a tool. Be concise. When a task is complete, summarize what you did."
     )
+
+    # Append AGENTS.md instructions if they exist
+    agents_md = load_agents_md()
+    if agents_md:
+        base += f"\n\n---\n\n{agents_md}"
+
+    return base
 
 
 SYSTEM_PROMPT = _build_system_prompt()
