@@ -159,15 +159,48 @@ _COMMANDS = {
     "/exit": "Exit CuddleWrap",
 }
 
-_COMMAND_ARGS = {
-    "/model": ["list"],
-}
+MAX_COMPLETIONS = 3
+
+# Cache for available models — refreshed on /model completion
+_model_cache = None
+_model_cache_time = 0
+_MODEL_CACHE_TTL = 30  # seconds
+
+
+def _get_available_models():
+    """Fetch available Ollama models, cached for 30s."""
+    import time
+    global _model_cache, _model_cache_time
+    now = time.time()
+    if _model_cache is not None and (now - _model_cache_time) < _MODEL_CACHE_TTL:
+        return _model_cache
+    try:
+        import ollama
+        result = ollama.list()
+        _model_cache = [m.model for m in result.models]
+        _model_cache_time = now
+    except Exception:
+        _model_cache = []
+        _model_cache_time = now
+    return _model_cache
 
 
 class CwCompleter(Completer):
-    """Autocomplete for /commands and @file paths."""
+    """Autocomplete for /commands, /model args, and @file paths.
+
+    Shows up to MAX_COMPLETIONS suggestions as you type,
+    in a dropdown between the prompt and the status bar.
+    """
 
     def get_completions(self, document, complete_event):
+        count = 0
+        for completion in self._get_all_completions(document):
+            yield completion
+            count += 1
+            if count >= MAX_COMPLETIONS:
+                return
+
+    def _get_all_completions(self, document):
         text = document.text_before_cursor
 
         # /command completion
@@ -176,7 +209,6 @@ class CwCompleter(Completer):
             cmd = parts[0]
 
             if len(parts) == 1 and not text.endswith(" "):
-                # Completing the command name itself
                 for name, hint in _COMMANDS.items():
                     if name.startswith(cmd):
                         yield Completion(
@@ -184,16 +216,17 @@ class CwCompleter(Completer):
                             start_position=-len(cmd),
                             display_meta=hint,
                         )
-            elif len(parts) >= 1 and cmd in _COMMAND_ARGS:
-                # Completing arguments
+            elif cmd == "/model":
+                # Suggest "list" + available model names
                 arg_text = parts[1] if len(parts) > 1 else ""
-                for arg in _COMMAND_ARGS[cmd]:
-                    if arg.startswith(arg_text):
-                        yield Completion(arg, start_position=-len(arg_text))
+                if "list".startswith(arg_text):
+                    yield Completion("list", start_position=-len(arg_text), display_meta="Show all models")
+                for model_name in _get_available_models():
+                    if model_name.startswith(arg_text):
+                        yield Completion(model_name, start_position=-len(arg_text))
             return
 
-        # @file completion — find the @token being typed
-        # Walk backwards from cursor to find the @ trigger
+        # @file completion
         pos = document.cursor_position
         full_text = document.text
         at_start = None
@@ -205,7 +238,6 @@ class CwCompleter(Completer):
                 break
 
         if at_start is not None:
-            # Everything after @ up to cursor is the partial path
             partial = full_text[at_start + 1 : pos]
             yield from self._complete_path(partial, len(partial))
 
@@ -248,6 +280,8 @@ _non_empty = Validator.from_callable(
 def get_input():
     """Get user input with the persistent bottom toolbar.
 
+    Completions show as-you-type in a dropdown between the prompt
+    and the status bar, capped at 3 suggestions.
     Blocks empty submissions — Enter on a blank line does nothing.
     Raises EOFError on Ctrl+D, KeyboardInterrupt on Ctrl+C.
     """
@@ -256,7 +290,9 @@ def get_input():
         bottom_toolbar=_toolbar_html,
         validator=_non_empty,
         completer=_completer,
-        complete_while_typing=False,  # Only complete on Tab
+        complete_while_typing=True,
+        complete_in_thread=True,            # Non-blocking, acts as debounce
+        reserve_space_for_menu=MAX_COMPLETIONS + 1,  # Space for dropdown
     ).strip()
 
 
