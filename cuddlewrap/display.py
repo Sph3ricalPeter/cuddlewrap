@@ -187,6 +187,28 @@ def _get_available_models():
     return _model_cache
 
 
+_convo_cache = None
+_convo_cache_time = 0
+_CONVO_CACHE_TTL = 5  # seconds — short since convos change on /clear
+
+
+def _get_conversations():
+    """Fetch conversation list, cached briefly."""
+    import time
+    global _convo_cache, _convo_cache_time
+    now = time.time()
+    if _convo_cache is not None and (now - _convo_cache_time) < _CONVO_CACHE_TTL:
+        return _convo_cache
+    try:
+        from cuddlewrap.history import list_conversations
+        _convo_cache = list_conversations()
+        _convo_cache_time = now
+    except Exception:
+        _convo_cache = []
+        _convo_cache_time = now
+    return _convo_cache
+
+
 class CwCompleter(Completer):
     """Autocomplete for /commands, /model args, and @file paths.
 
@@ -195,11 +217,14 @@ class CwCompleter(Completer):
     """
 
     def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        # /resume gets more suggestions since you're browsing history
+        limit = 10 if text.startswith("/resume") else MAX_COMPLETIONS
         count = 0
         for completion in self._get_all_completions(document):
             yield completion
             count += 1
-            if count >= MAX_COMPLETIONS:
+            if count >= limit:
                 return
 
     def _get_all_completions(self, document):
@@ -226,6 +251,17 @@ class CwCompleter(Completer):
                 for model_name in _get_available_models():
                     if model_name.startswith(arg_text):
                         yield Completion(model_name, start_position=-len(arg_text))
+            elif cmd == "/resume":
+                # Suggest past conversations from history
+                arg_text = (parts[1] if len(parts) > 1 else "").lower()
+                for filepath, slug, ts in _get_conversations():
+                    date = ts.strftime("%m/%d %H:%M")
+                    if not arg_text or arg_text in slug.lower():
+                        yield Completion(
+                            slug,
+                            start_position=-len(parts[1]) if len(parts) > 1 else 0,
+                            display=HTML(f"<b>{date}</b>  {slug}"),
+                        )
             return
 
         # @file completion
@@ -415,60 +451,3 @@ def harness_error(text):
     print(f"  {C.RED}[cw] {text}{C.RESET}")
 
 
-# ── Interactive pickers ──
-
-def pick_conversation(conversations):
-    """Show an interactive conversation picker below the prompt.
-
-    Users can arrow-key through or type to filter by conversation text.
-    Returns the index (0-based) of the selected conversation, or None if cancelled.
-    """
-    if not conversations:
-        return None
-
-    class ConversationCompleter(Completer):
-        def get_completions(self, document, complete_event):
-            text = document.text_before_cursor.lower()
-            for i, (filepath, slug, ts) in enumerate(conversations):
-                date = ts.strftime("%m/%d %H:%M")
-                label = f"{slug}"
-                display_text = f"{date}  {slug}"
-                if not text or text in slug.lower() or text in date:
-                    yield Completion(
-                        label,
-                        start_position=-len(document.text_before_cursor),
-                        display=HTML(f"<b>{date}</b>  {slug}"),
-                        display_meta=f"#{i+1}",
-                    )
-
-    completer = ConversationCompleter()
-
-    try:
-        result = pt_prompt(
-            [("class:gray", "  resume: ")],
-            bottom_toolbar=_toolbar_html,
-            completer=completer,
-            complete_while_typing=True,
-            complete_in_thread=True,
-            reserve_space_for_menu=min(len(conversations), 10) + 1,
-        )
-        result = result.strip()
-        if not result:
-            return None
-
-        # Find which conversation was selected by matching the slug
-        for i, (filepath, slug, ts) in enumerate(conversations):
-            if slug == result or result in slug:
-                return i
-
-        # Try as a number
-        try:
-            idx = int(result) - 1
-            if 0 <= idx < len(conversations):
-                return idx
-        except ValueError:
-            pass
-
-        return None
-    except (KeyboardInterrupt, EOFError):
-        return None

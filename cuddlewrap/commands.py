@@ -142,29 +142,36 @@ def _replay_conversation(messages):
 
 
 def cmd_resume(args, state):
-    """Resume a past conversation with an interactive picker."""
+    """Resume a past conversation. Arg is the conversation slug from autocomplete."""
     conversations = list_conversations()
 
     if not conversations:
         display.harness_info("no conversation history yet")
         return
 
-    # Show interactive picker — user can arrow-key or type to filter
-    idx = display.pick_conversation(conversations)
-
-    if idx is None:
-        display.harness_info("cancelled")
+    if not args:
+        # No arg — list available conversations as a hint
+        print("\n  Recent conversations (use /resume + Tab to select):")
+        for i, (filepath, slug, ts) in enumerate(conversations[:10], 1):
+            date = ts.strftime("%Y-%m-%d %H:%M")
+            print(f"    {i:>3}. {date}  {slug}")
+        print()
         return
 
-    filepath, slug, ts = conversations[idx]
-    messages = load_conversation(filepath)
-    if messages:
-        state["messages"] = messages
-        display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
-        display.harness_info(f"{len(messages)} messages loaded\n")
-        _replay_conversation(messages)
-    else:
-        display.harness_error("failed to load conversation")
+    # Find matching conversation by slug
+    for filepath, slug, ts in conversations:
+        if slug == args or args in slug:
+            messages = load_conversation(filepath)
+            if messages:
+                state["messages"] = messages
+                display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
+                display.harness_info(f"{len(messages)} messages loaded\n")
+                _replay_conversation(messages)
+            else:
+                display.harness_error("failed to load conversation")
+            return
+
+    display.harness_error(f"no conversation matching '{args}'")
 
 
 INIT_PROMPT = """\
