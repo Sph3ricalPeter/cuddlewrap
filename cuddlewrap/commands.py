@@ -175,7 +175,11 @@ Keep it concise (under 200 lines). Write the file as AGENTS.md in the current di
 
 
 def cmd_init(args, state):
-    """Scan the project and generate an AGENTS.md using the model."""
+    """Scan the project and generate an AGENTS.md using the model.
+
+    Runs a mini conversation loop: the model explores, may ask the user
+    for details, and keeps going until AGENTS.md is created or the user cancels.
+    """
     from cuddlewrap.agent import run_turn
     from cuddlewrap.tools import TOOLS, TOOL_MAP
 
@@ -185,27 +189,48 @@ def cmd_init(args, state):
         return
 
     display.harness_info("scanning project to generate AGENTS.md...")
+    display.harness_info("(type 'cancel' to abort)\n")
 
-    # Run an agentic turn with the init prompt
+    # Separate conversation just for init — doesn't pollute main chat
     init_messages = [
         {"role": "system", "content": state["messages"][0]["content"]},
         {"role": "user", "content": INIT_PROMPT},
     ]
 
-    try:
-        run_turn(init_messages, state["model"], TOOLS, TOOL_MAP)
-    except KeyboardInterrupt:
-        display.harness_info("interrupted")
-        return
-    except Exception as e:
-        display.harness_error(f"init failed: {e}")
-        return
+    # Loop: let model explore, ask questions, user responds, until AGENTS.md exists
+    max_rounds = 5
+    for _round in range(max_rounds):
+        try:
+            init_messages = run_turn(init_messages, state["model"], TOOLS, TOOL_MAP)
+        except KeyboardInterrupt:
+            display.harness_info("init interrupted")
+            return
+        except Exception as e:
+            display.harness_error(f"init failed: {e}")
+            return
 
-    if os.path.isfile(filename):
-        display.harness_info(f"created {filename} — it will be loaded on next startup")
-        display.harness_info("review and edit it to match your project's conventions")
-    else:
-        display.harness_error("model did not create AGENTS.md — try again or create it manually")
+        # Check if AGENTS.md was created
+        if os.path.isfile(filename):
+            display.harness_info(f"created {filename} — it will be loaded on next startup")
+            display.harness_info("review and edit it to match your project's conventions")
+            return
+
+        # Model asked a question — get user's response and continue
+        try:
+            user_reply = display.get_input()
+        except (KeyboardInterrupt, EOFError):
+            display.harness_info("init cancelled")
+            return
+
+        if user_reply.lower() in ("cancel", "abort", "quit"):
+            display.harness_info("init cancelled")
+            return
+
+        init_messages.append({"role": "user", "content": user_reply
+            + "\n\nNow use write_file to create AGENTS.md based on this information."
+            + " Do NOT create the actual project files — only create AGENTS.md."})
+
+    display.harness_error("could not generate AGENTS.md — create it manually or try /init again")
 
 
 COMMANDS = {
