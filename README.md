@@ -1,6 +1,8 @@
 # CuddleWrap
 
-A minimal LLM tool-calling harness for your terminal. Think Claude Code, but local-first with Ollama.
+> **⚠️ Educational project** — I'm building this to learn how LLM tool-calling harnesses work under the hood. Not intended as a production tool. Expect rough edges, experiments, and frequent rewrites.
+
+A minimal LLM tool-calling harness for your terminal. Local-first with Ollama.
 
 ```
    ______          __    ____     _       __

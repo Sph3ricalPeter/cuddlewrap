@@ -8,7 +8,7 @@ import ollama
 
 from cuddlewrap import display
 from cuddlewrap.display import Spinner
-from cuddlewrap.tools import SAFE_TOOLS, truncate_output
+from cuddlewrap.tools import SAFE_TOOLS, ALWAYS_CONFIRM_TOOLS, truncate_output
 
 MAX_ITERATIONS = 15
 _model_ctx_cache = {}
@@ -164,9 +164,14 @@ def run_turn(messages, model, tools, tool_map):
             # Show tool call (compact single line)
             display.tool_call(name, args_display)
 
-            # Permission tiers: safe tools auto-approve, dangerous tools ask
+            # Permission tiers:
+            #   SAFE_TOOLS (read-only): always auto-approve
+            #   ALWAYS_CONFIRM_TOOLS (bash): always ask, even with auto-approve on
+            #   Everything else (write_file, edit_file): ask, but respect auto-approve
             if name in SAFE_TOOLS:
                 choice = "y"
+            elif name in ALWAYS_CONFIRM_TOOLS:
+                choice = display.confirm_tool(name, force=True)
             else:
                 choice = display.confirm_tool(name)
 

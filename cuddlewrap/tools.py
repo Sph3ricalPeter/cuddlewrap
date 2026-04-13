@@ -5,14 +5,76 @@ import os
 import re
 import subprocess
 
-# Tools that are safe to auto-approve (read-only)
-SAFE_TOOLS = {"read_file", "glob_search", "grep_search"}
-# Tools that modify state (need confirmation)
-DANGEROUS_TOOLS = {"bash", "write_file", "edit_file"}
+# The sandbox root — set at startup, all file tools are jailed to this
+SANDBOX_ROOT = os.path.abspath(os.getcwd())
+
+# Permission tiers
+SAFE_TOOLS = {"read_file", "glob_search", "grep_search"}   # Always auto-approve
+CONFIRM_TOOLS = {"write_file", "edit_file"}                  # Auto-approve with 'a'
+ALWAYS_CONFIRM_TOOLS = {"bash"}                              # Always confirm, never auto
 
 # Truncate tool output sent to the model beyond this limit
 MAX_OUTPUT_CHARS = 10_000
 
+
+# ── Sandbox validation ──
+
+def _check_sandbox(path):
+    """Validate that a path resolves within SANDBOX_ROOT.
+
+    Returns the absolute path if safe, raises ValueError if not.
+    """
+    abs_path = os.path.abspath(path)
+    # os.path.commonpath handles trailing slashes, case on Windows, etc.
+    try:
+        common = os.path.commonpath([abs_path, SANDBOX_ROOT])
+    except ValueError:
+        # Different drives on Windows (e.g. C: vs D:)
+        raise ValueError(f"Path '{path}' is outside the project directory")
+    if common != SANDBOX_ROOT:
+        raise ValueError(f"Path '{path}' is outside the project directory")
+    return abs_path
+
+
+def _check_bash_paths(command):
+    """Best-effort detection of paths outside the sandbox in a bash command.
+
+    Returns a list of suspicious path fragments found, or empty list if clean.
+    """
+    suspicious = []
+
+    # Detect absolute paths (Windows drive letters with \ or /, or Unix /)
+    # that don't start with the sandbox root
+    abs_pattern = re.compile(
+        r'(?:[A-Za-z]:[/\\][^\s"\'|&>]+|/(?:etc|usr|home|tmp|var|root|opt|mnt|boot|sys|proc)[/\w]*)',
+    )
+    for match in abs_pattern.finditer(command):
+        found = match.group()
+        try:
+            resolved = os.path.abspath(found)
+            common = os.path.commonpath([resolved, SANDBOX_ROOT])
+            if common != SANDBOX_ROOT:
+                suspicious.append(found)
+        except (ValueError, OSError):
+            suspicious.append(found)
+
+    # Detect .. traversal that escapes the sandbox
+    if ".." in command:
+        # Try to resolve relative paths containing ..
+        parts = re.findall(r'["\']?(\S*\.\.[^\s"\'|&>]*)["\']?', command)
+        for part in parts:
+            try:
+                resolved = os.path.abspath(part)
+                common = os.path.commonpath([resolved, SANDBOX_ROOT])
+                if common != SANDBOX_ROOT:
+                    suspicious.append(part)
+            except (ValueError, OSError):
+                suspicious.append(part)
+
+    return suspicious
+
+
+# ── Tools ──
 
 def bash(command: str) -> str:
     """Execute a shell command on the user's machine and return the output.
@@ -23,6 +85,12 @@ def bash(command: str) -> str:
     Returns:
         str: The combined stdout and stderr output of the command
     """
+    # Check for paths escaping the sandbox
+    suspicious = _check_bash_paths(command)
+    if suspicious:
+        paths = ", ".join(suspicious)
+        return f"[blocked: command references paths outside project directory: {paths}]"
+
     try:
         result = subprocess.run(
             command,
@@ -30,7 +98,7 @@ def bash(command: str) -> str:
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=os.getcwd(),
+            cwd=SANDBOX_ROOT,
         )
         output = result.stdout
         if result.stderr:
@@ -55,7 +123,7 @@ def write_file(path: str, content: str) -> str:
         str: Confirmation message or error
     """
     try:
-        abs_path = os.path.abspath(path)
+        abs_path = _check_sandbox(path)
         parent = os.path.dirname(abs_path)
         if parent and not os.path.exists(parent):
             os.makedirs(parent)
@@ -63,6 +131,8 @@ def write_file(path: str, content: str) -> str:
             f.write(content)
         lines = content.count("\n") + 1
         return f"Wrote {lines} lines to {abs_path}"
+    except ValueError as e:
+        return f"[blocked: {e}]"
     except Exception as e:
         return f"[error: {e}]"
 
@@ -77,11 +147,13 @@ def read_file(path: str) -> str:
         str: The file contents with line numbers, or an error message
     """
     try:
-        abs_path = os.path.abspath(path)
+        abs_path = _check_sandbox(path)
         with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         numbered = [f"{i + 1:4d} | {line.rstrip()}" for i, line in enumerate(lines)]
         return "\n".join(numbered) if numbered else "(empty file)"
+    except ValueError as e:
+        return f"[blocked: {e}]"
     except FileNotFoundError:
         return f"[error: file not found: {path}]"
     except Exception as e:
@@ -100,7 +172,7 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         str: Confirmation with line numbers affected, or an error message
     """
     try:
-        abs_path = os.path.abspath(path)
+        abs_path = _check_sandbox(path)
         with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
             content = f.read()
 
@@ -110,7 +182,6 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
         if count > 1:
             return f"[error: old_text found {count} times in {path} — must be unique. Provide more context.]"
 
-        # Find the line number of the match
         before_match = content[: content.index(old_text)]
         start_line = before_match.count("\n") + 1
         end_line = start_line + old_text.count("\n")
@@ -121,6 +192,8 @@ def edit_file(path: str, old_text: str, new_text: str) -> str:
 
         new_line_count = new_text.count("\n") + 1
         return f"Edited {abs_path} lines {start_line}-{end_line} ({new_line_count} new lines)"
+    except ValueError as e:
+        return f"[blocked: {e}]"
     except FileNotFoundError:
         return f"[error: file not found: {path}]"
     except Exception as e:
@@ -138,10 +211,9 @@ def glob_search(pattern: str, path: str = ".") -> str:
         str: Matching file paths, one per line, or a message if none found
     """
     try:
-        base = os.path.abspath(path)
+        base = _check_sandbox(path)
         matches = []
         for root, dirs, files in os.walk(base):
-            # Skip hidden dirs and common junk
             dirs[:] = [d for d in dirs if not d.startswith(".") and d not in (
                 "node_modules", "__pycache__", ".git", "venv", ".venv",
             )]
@@ -154,6 +226,8 @@ def glob_search(pattern: str, path: str = ".") -> str:
             return f"No files matching '{pattern}' found in {base}"
         matches.sort()
         return "\n".join(matches)
+    except ValueError as e:
+        return f"[blocked: {e}]"
     except Exception as e:
         return f"[error: {e}]"
 
@@ -175,7 +249,7 @@ def grep_search(pattern: str, path: str = ".", include: str = "") -> str:
         return f"[error: invalid regex: {e}]"
 
     try:
-        base = os.path.abspath(path)
+        base = _check_sandbox(path)
         results = []
         max_results = 50
 
@@ -213,6 +287,8 @@ def grep_search(pattern: str, path: str = ".", include: str = "") -> str:
         if len(results) >= max_results:
             output += f"\n... (limited to {max_results} results)"
         return output
+    except ValueError as e:
+        return f"[blocked: {e}]"
     except Exception as e:
         return f"[error: {e}]"
 

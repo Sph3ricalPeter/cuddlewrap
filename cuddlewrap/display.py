@@ -16,6 +16,8 @@ import sys
 import threading
 
 from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.document import Document
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.validation import Validator
@@ -147,6 +149,93 @@ class Spinner:
         self.stop()
 
 
+# ── Autocomplete ──
+
+_COMMANDS = {
+    "/help": "Show available commands",
+    "/model": "Show or switch model (/model list, /model <name>)",
+    "/settings": "Show current settings",
+    "/clear": "Clear conversation and screen",
+    "/exit": "Exit CuddleWrap",
+}
+
+_COMMAND_ARGS = {
+    "/model": ["list"],
+}
+
+
+class CwCompleter(Completer):
+    """Autocomplete for /commands and @file paths."""
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # /command completion
+        if text.startswith("/"):
+            parts = text.split(None, 1)
+            cmd = parts[0]
+
+            if len(parts) == 1 and not text.endswith(" "):
+                # Completing the command name itself
+                for name, hint in _COMMANDS.items():
+                    if name.startswith(cmd):
+                        yield Completion(
+                            name,
+                            start_position=-len(cmd),
+                            display_meta=hint,
+                        )
+            elif len(parts) >= 1 and cmd in _COMMAND_ARGS:
+                # Completing arguments
+                arg_text = parts[1] if len(parts) > 1 else ""
+                for arg in _COMMAND_ARGS[cmd]:
+                    if arg.startswith(arg_text):
+                        yield Completion(arg, start_position=-len(arg_text))
+            return
+
+        # @file completion — find the @token being typed
+        # Walk backwards from cursor to find the @ trigger
+        pos = document.cursor_position
+        full_text = document.text
+        at_start = None
+        for i in range(pos - 1, -1, -1):
+            if full_text[i] == "@":
+                at_start = i
+                break
+            elif full_text[i] in (" ", "\t", "\n"):
+                break
+
+        if at_start is not None:
+            # Everything after @ up to cursor is the partial path
+            partial = full_text[at_start + 1 : pos]
+            yield from self._complete_path(partial, len(partial))
+
+    def _complete_path(self, partial, replace_len):
+        """Yield file path completions for a partial path."""
+        if os.sep == "\\" and "/" in partial:
+            partial = partial.replace("/", "\\")
+
+        directory = os.path.dirname(partial) if partial else "."
+        prefix = os.path.basename(partial)
+        search_dir = directory if directory else "."
+
+        try:
+            entries = os.listdir(search_dir)
+        except OSError:
+            return
+
+        for entry in sorted(entries):
+            if entry.startswith("."):
+                continue
+            if entry.startswith(prefix):
+                full = os.path.join(directory, entry) if directory and directory != "." else entry
+                if os.path.isdir(os.path.join(search_dir, entry)):
+                    full += os.sep
+                yield Completion(full, start_position=-replace_len)
+
+
+_completer = CwCompleter()
+
+
 # ── Input functions (these render the toolbar) ──
 
 _non_empty = Validator.from_callable(
@@ -166,18 +255,24 @@ def get_input():
         [("bold", "› ")],
         bottom_toolbar=_toolbar_html,
         validator=_non_empty,
+        completer=_completer,
+        complete_while_typing=False,  # Only complete on Tab
     ).strip()
 
 
-def confirm_tool(tool_name):
+def confirm_tool(tool_name, force=False):
     """Ask for confirmation to run a tool.
 
-    The prompt disappears after input — only a [cw] status line remains.
+    Args:
+        tool_name: Name of the tool.
+        force: If True, always ask even when auto-approve is on (for bash).
+
+    The prompt disappears after input.
     Returns 'y' or 'n'. 'a' enables auto-approve and returns 'y'.
     """
     global _auto_approve
 
-    if _auto_approve:
+    if _auto_approve and not force:
         return "y"
 
     bindings = KeyBindings()
@@ -199,14 +294,15 @@ def confirm_tool(tool_name):
         event.app.exit(result="n")
 
     try:
+        label = f"  Run {tool_name}? [y/n/a] "
         result = pt_prompt(
-            [("class:yellow", f"  Run {tool_name}? [y/n/a] ")],
+            [("class:yellow", label)],
             bottom_toolbar=_toolbar_html,
             key_bindings=bindings,
         )
         choice = result.strip().lower() if result else "n"
 
-        # Erase the prompt line — move up, clear, so it doesn't stay in history
+        # Erase the prompt line so it doesn't stay in history
         sys.stdout.write(f"{C.UP}{C.CLEAR_LINE}\r")
         sys.stdout.flush()
 
