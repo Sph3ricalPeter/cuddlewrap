@@ -149,14 +149,9 @@ def cmd_resume(args, state):
         display.harness_info("no conversation history yet")
         return
 
+    # No args → resume the most recent conversation
     if not args:
-        # No arg — list available conversations as a hint
-        print("\n  Recent conversations (use /resume + Tab to select):")
-        for i, (filepath, slug, ts) in enumerate(conversations[:10], 1):
-            date = ts.strftime("%Y-%m-%d %H:%M")
-            print(f"    {i:>3}. {date}  {slug}")
-        print()
-        return
+        args = conversations[0][1]  # slug of most recent
 
     # Find matching conversation by slug
     for filepath, slug, ts in conversations:
