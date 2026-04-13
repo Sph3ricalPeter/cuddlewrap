@@ -113,6 +113,41 @@ Settings:
     )
 
 
+def _replay_conversation(messages):
+    """Print a summary of past conversation messages."""
+    for msg in messages:
+        role = msg.get("role") or (msg.role if hasattr(msg, "role") else None)
+        content = msg.get("content") or (msg.content if hasattr(msg, "content") else "")
+
+        if role == "system":
+            continue  # Don't replay system prompt
+        elif role == "user":
+            # Truncate long user messages (e.g. @file inclusions)
+            preview = content[:200].split("\n")[0]
+            print(f"{display.C.BOLD}› {preview}{display.C.RESET}")
+        elif role == "assistant":
+            if content:
+                preview = content[:300]
+                if len(content) > 300:
+                    preview += "..."
+                display.model_text(preview)
+            # Show tool calls if present
+            tool_calls = msg.get("tool_calls", [])
+            for tc in tool_calls:
+                name = tc.get("name", "?")
+                tc_args = tc.get("arguments", {})
+                display.tool_call(name, str(tc_args)[:80])
+        elif role == "tool":
+            # Show abbreviated tool result
+            tool_name = msg.get("tool_name", "tool")
+            preview = content[:100]
+            if len(content) > 100:
+                preview += "..."
+            print(f"  {display.C.DIM}[{tool_name}] {preview}{display.C.RESET}")
+
+    print()  # Blank line before new prompt
+
+
 def cmd_history(args, state):
     """List or resume past conversations."""
     conversations = list_conversations()
@@ -131,7 +166,9 @@ def cmd_history(args, state):
                 if messages:
                     state["messages"] = messages
                     display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
-                    display.harness_info(f"{len(messages)} messages loaded")
+                    display.harness_info(f"{len(messages)} messages loaded\n")
+                    # Replay conversation so user can see what was said
+                    _replay_conversation(messages)
                 else:
                     display.harness_error("failed to load conversation")
             else:
