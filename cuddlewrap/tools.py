@@ -102,6 +102,7 @@ def bash(command: str) -> str:
             text=True,
             timeout=120,
             cwd=SANDBOX_ROOT,
+            stdin=subprocess.DEVNULL,
         )
         output = result.stdout
         if result.stderr:
