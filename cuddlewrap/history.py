@@ -12,6 +12,7 @@ from datetime import datetime
 from cuddlewrap.config import CONFIG_DIR
 
 HISTORY_DIR = os.path.join(CONFIG_DIR, "history")
+MAX_HISTORY = 50  # Keep last N conversations, FIFO
 
 
 def _slugify(text, max_words=5):
@@ -63,9 +64,23 @@ def save_conversation(messages):
     try:
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(serialized, f, indent=2, ensure_ascii=False)
+        _cleanup_old()
         return filepath
     except Exception:
         return None
+
+
+def _cleanup_old():
+    """Delete oldest conversation files beyond MAX_HISTORY."""
+    try:
+        files = sorted(
+            [f for f in os.listdir(HISTORY_DIR) if f.endswith(".json")],
+            reverse=True,  # Newest first (filenames start with timestamp)
+        )
+        for old in files[MAX_HISTORY:]:
+            os.remove(os.path.join(HISTORY_DIR, old))
+    except Exception:
+        pass
 
 
 def list_conversations(limit=20):
