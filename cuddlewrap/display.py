@@ -35,6 +35,13 @@ class C:
     RED = "\033[31m"
     GRAY = "\033[90m"
     WHITE = "\033[97m"
+    # Diff backgrounds (GitKraken-style)
+    BG_RED = "\033[48;5;52m"      # Dark red background
+    BG_GREEN = "\033[48;5;22m"    # Dark green background
+    BG_BLUE = "\033[48;5;17m"     # Dark blue background
+    FG_RED = "\033[38;5;210m"     # Light red text
+    FG_GREEN = "\033[38;5;114m"   # Light green text
+    FG_BLUE = "\033[38;5;111m"    # Light blue text
     # Cursor control
     UP = "\033[A"
     CLEAR_LINE = "\033[2K"
@@ -429,17 +436,19 @@ def _is_diff(text):
 
 
 def _print_diff_line(line):
-    """Print a single diff line with appropriate coloring."""
+    """Print a single diff line with GitKraken-style background coloring."""
+    width = shutil.get_terminal_size().columns - 2  # account for indent
+    padded = line.ljust(width)
     if line.startswith("+++") or line.startswith("---"):
-        print(f"  {C.BOLD}{line}{C.RESET}")
+        print(f"  {C.BOLD}{C.DIM}{padded}{C.RESET}")
     elif line.startswith("@@"):
-        print(f"  {C.CYAN}{line}{C.RESET}")
+        print(f"  {C.BG_BLUE}{C.FG_BLUE}{padded}{C.RESET}")
     elif line.startswith("+"):
-        print(f"  {C.GREEN}{line}{C.RESET}")
+        print(f"  {C.BG_GREEN}{C.FG_GREEN}{padded}{C.RESET}")
     elif line.startswith("-"):
-        print(f"  {C.RED}{line}{C.RESET}")
+        print(f"  {C.BG_RED}{C.FG_RED}{padded}{C.RESET}")
     else:
-        print(f"  {C.DIM}{line}{C.RESET}")
+        print(f"  {C.DIM}{padded}{C.RESET}")
 
 
 def tool_output(text):
