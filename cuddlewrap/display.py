@@ -415,12 +415,17 @@ def model_text(text):
 
 
 TOOL_OUTPUT_MAX_LINES = 10
+MAX_WIDTH = 120  # Cap width to avoid wrapping on resize
+
+
+def _width():
+    """Get display width, capped to avoid wrapping on terminal resize."""
+    return min(shutil.get_terminal_size().columns, MAX_WIDTH)
 
 
 def _hr():
-    """Print a full-width gray horizontal rule."""
-    width = shutil.get_terminal_size().columns
-    print(f"{C.GRAY}{'─' * width}{C.RESET}")
+    """Print a gray horizontal rule, capped at MAX_WIDTH."""
+    print(f"{C.GRAY}{'─' * _width()}{C.RESET}")
 
 
 def tool_call(tool_name, args_display):
@@ -437,7 +442,7 @@ def _is_diff(text):
 
 def _print_diff_line(line):
     """Print a single diff line with GitKraken-style background coloring."""
-    width = shutil.get_terminal_size().columns - 2  # account for indent
+    width = _width() - 2  # account for indent
     padded = line.ljust(width)
     if line.startswith("+++") or line.startswith("---"):
         print(f"  {C.BOLD}{C.DIM}{padded}{C.RESET}")
