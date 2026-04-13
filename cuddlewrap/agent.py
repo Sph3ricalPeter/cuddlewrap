@@ -24,7 +24,8 @@ def _build_system_prompt():
     base = (
         f"You are an expert software engineer. You have access to tools to execute "
         f"shell commands, read files, write files, edit files, and search the codebase.\n"
-        f"ALWAYS use write_file to create files and edit_file to modify existing files.\n"
+        f"Use write_file to create new files OR when making large/many changes to a file.\n"
+        f"Use edit_file only for small, targeted changes (1-2 replacements max).\n"
         f"NEVER use echo/type redirects to write files.\n"
         f"Use glob_search to find files by name and grep_search to find text in files.\n"
         f"Use python_run to run Python scripts (NOT 'bash python'). Use pip_install for packages.\n"
@@ -253,11 +254,8 @@ def _execute_parallel(batch, tool_map, messages):
             except Exception as e:
                 result = f"[error: {e}]"
 
-            # Display result
-            sanitized = _sanitize(result)
-            if len(sanitized) > 500:
-                sanitized = sanitized[:500] + f"\n... ({len(result)} chars total)"
-            display.tool_output(sanitized)
+            # Display result — diffs shown in full, other output truncated
+            display.tool_output(_display_truncate(_sanitize(result)))
 
             # Append to messages
             messages.append({
@@ -265,6 +263,16 @@ def _execute_parallel(batch, tool_map, messages):
                 "content": str(truncate_output(result)),
                 "tool_name": name,
             })
+
+
+def _display_truncate(text):
+    """Truncate text for display, but never truncate diffs."""
+    is_diff = any(text.startswith(p) for p in ("---", "+++", "@@", "diff "))
+    if is_diff:
+        return text
+    if len(text) > 500:
+        return text[:500] + f"\n... ({len(text)} chars total)"
+    return text
 
 
 def _execute_single(item, tool_map, messages, auto=False):
@@ -291,10 +299,7 @@ def _execute_single(item, tool_map, messages, auto=False):
         else:
             result = f"[error: unknown tool '{name}']"
 
-        sanitized = _sanitize(result)
-        if len(sanitized) > 500:
-            sanitized = sanitized[:500] + f"\n... ({len(result)} chars total)"
-        display.tool_output(sanitized)
+        display.tool_output(_display_truncate(_sanitize(result)))
 
     messages.append({
         "role": "tool",
