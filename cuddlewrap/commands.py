@@ -36,8 +36,7 @@ Commands:
   /model list          List all available models
   /model <name>        Switch to a different model
   /settings            Show current settings
-  /history             List recent conversations
-  /history <n>         Resume conversation #n
+  /resume              Resume a past conversation (interactive picker)
   /init                Create AGENTS.md in current directory
   /clear               Clear conversation history and screen
   /exit                Exit CuddleWrap
@@ -142,41 +141,30 @@ def _replay_conversation(messages):
     print()  # Blank line before new prompt
 
 
-def cmd_history(args, state):
-    """List or resume past conversations."""
+def cmd_resume(args, state):
+    """Resume a past conversation with an interactive picker."""
     conversations = list_conversations()
 
     if not conversations:
         display.harness_info("no conversation history yet")
         return
 
-    if args:
-        # Resume conversation #n
-        try:
-            idx = int(args) - 1
-            if 0 <= idx < len(conversations):
-                filepath, slug, ts = conversations[idx]
-                messages = load_conversation(filepath)
-                if messages:
-                    state["messages"] = messages
-                    display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
-                    display.harness_info(f"{len(messages)} messages loaded\n")
-                    # Replay conversation so user can see what was said
-                    _replay_conversation(messages)
-                else:
-                    display.harness_error("failed to load conversation")
-            else:
-                display.harness_error(f"invalid number. Use 1-{len(conversations)}")
-        except ValueError:
-            display.harness_error("usage: /history <number>")
+    # Show interactive picker — user can arrow-key or type to filter
+    idx = display.pick_conversation(conversations)
+
+    if idx is None:
+        display.harness_info("cancelled")
         return
 
-    # List conversations
-    print("\n  Recent conversations:")
-    for i, (filepath, slug, ts) in enumerate(conversations, 1):
-        date = ts.strftime("%Y-%m-%d %H:%M")
-        print(f"    {i:>3}. {date}  {slug}")
-    print(f"\n  Use /history <n> to resume a conversation\n")
+    filepath, slug, ts = conversations[idx]
+    messages = load_conversation(filepath)
+    if messages:
+        state["messages"] = messages
+        display.harness_info(f"resumed '{slug}' ({ts.strftime('%Y-%m-%d %H:%M')})")
+        display.harness_info(f"{len(messages)} messages loaded\n")
+        _replay_conversation(messages)
+    else:
+        display.harness_error("failed to load conversation")
 
 
 INIT_PROMPT = """\
@@ -270,7 +258,7 @@ COMMANDS = {
     "clear": cmd_clear,
     "model": cmd_model,
     "settings": cmd_settings,
-    "history": cmd_history,
+    "resume": cmd_resume,
     "init": cmd_init,
 }
 
