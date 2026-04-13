@@ -47,9 +47,10 @@ def _check_bash_paths(command):
     suspicious = []
 
     # Detect absolute paths (Windows drive letters with \ or /, or Unix /)
-    # that don't start with the sandbox root
+    # that don't start with the sandbox root.
+    # Exclude URLs (X://...) — drive letters use X:\ or X:/ but never X://
     abs_pattern = re.compile(
-        r'(?:[A-Za-z]:[/\\][^\s"\'|&>]+|/(?:etc|usr|home|tmp|var|root|opt|mnt|boot|sys|proc)[/\w]*)',
+        r'(?:[A-Za-z]:[/\\](?!/)[^\s"\'|&>]+|/(?:etc|usr|home|tmp|var|root|opt|mnt|boot|sys|proc)[/\w]*)',
     )
     for match in abs_pattern.finditer(command):
         found = match.group()
