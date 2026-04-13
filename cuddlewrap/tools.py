@@ -1,15 +1,18 @@
 """Tool definitions for CuddleWrap."""
 
 import fnmatch
+import json
 import os
 import re
 import subprocess
+import urllib.request
+import urllib.parse
 
 # The sandbox root — set at startup, all file tools are jailed to this
 SANDBOX_ROOT = os.path.abspath(os.getcwd())
 
 # Permission tiers
-SAFE_TOOLS = {"read_file", "glob_search", "grep_search"}   # Always auto-approve
+SAFE_TOOLS = {"read_file", "glob_search", "grep_search", "web_search"}   # Always auto-approve
 CONFIRM_TOOLS = {"write_file", "edit_file"}                  # Auto-approve with 'a'
 ALWAYS_CONFIRM_TOOLS = {"bash"}                              # Always confirm, never auto
 
@@ -293,6 +296,49 @@ def grep_search(pattern: str, path: str = ".", include: str = "") -> str:
         return f"[error: {e}]"
 
 
+def web_search(query: str) -> str:
+    """Search the web and return top results with titles, snippets, and URLs.
+
+    Args:
+        query (str): The search query
+
+    Returns:
+        str: Top search results formatted as title, snippet, and URL
+    """
+    try:
+        # Use DuckDuckGo HTML endpoint (no API key needed)
+        encoded = urllib.parse.quote_plus(query)
+        url = f"https://html.duckduckgo.com/html/?q={encoded}"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+
+        # Parse results from HTML (simple regex extraction)
+        results = []
+        # DuckDuckGo HTML results are in <a class="result__a"> with <a class="result__snippet">
+        title_pattern = re.compile(r'class="result__a"[^>]*>(.*?)</a>', re.DOTALL)
+        snippet_pattern = re.compile(r'class="result__snippet">(.*?)</(?:a|td)', re.DOTALL)
+        url_pattern = re.compile(r'class="result__url"[^>]*>(.*?)</a>', re.DOTALL)
+
+        titles = title_pattern.findall(html)
+        snippets = snippet_pattern.findall(html)
+        urls = url_pattern.findall(html)
+
+        for i in range(min(5, len(titles))):
+            title = re.sub(r"<[^>]+>", "", titles[i]).strip()
+            snippet = re.sub(r"<[^>]+>", "", snippets[i]).strip() if i < len(snippets) else ""
+            link = re.sub(r"<[^>]+>", "", urls[i]).strip() if i < len(urls) else ""
+            results.append(f"{i+1}. {title}\n   {snippet}\n   {link}")
+
+        if not results:
+            return f"No results found for '{query}'"
+        return "\n\n".join(results)
+    except Exception as e:
+        return f"[error: web search failed: {e}]"
+
+
 def truncate_output(result):
     """Truncate tool output if it exceeds MAX_OUTPUT_CHARS for context management."""
     if len(result) <= MAX_OUTPUT_CHARS:
@@ -305,7 +351,7 @@ def truncate_output(result):
     )
 
 
-TOOLS = [bash, write_file, read_file, edit_file, glob_search, grep_search]
+TOOLS = [bash, write_file, read_file, edit_file, glob_search, grep_search, web_search]
 TOOL_MAP = {
     "bash": bash,
     "write_file": write_file,
@@ -313,4 +359,5 @@ TOOL_MAP = {
     "edit_file": edit_file,
     "glob_search": glob_search,
     "grep_search": grep_search,
+    "web_search": web_search,
 }

@@ -8,7 +8,8 @@ from cuddlewrap.agent import SYSTEM_PROMPT, run_turn
 from cuddlewrap.commands import parse_command, run_command
 from cuddlewrap.config import load_config, ensure_config_dir
 from cuddlewrap.history import save_conversation
-from cuddlewrap.tools import TOOLS, TOOL_MAP
+from cuddlewrap.plugins import discover_plugins, ensure_plugins_dir
+from cuddlewrap.tools import TOOLS, TOOL_MAP, SAFE_TOOLS, ALWAYS_CONFIRM_TOOLS
 
 BANNER = rf"""
 {display.C.CYAN}   ______          __    ____     _       __
@@ -48,12 +49,24 @@ def main():
 
     # Load config
     ensure_config_dir()
+    ensure_plugins_dir()
     config = load_config()
+
+    # Merge built-in tools with plugins
+    all_tools = list(TOOLS)
+    all_tool_map = dict(TOOL_MAP)
+    plugin_tools, plugin_map, plugin_safe, plugin_always = discover_plugins()
+    all_tools.extend(plugin_tools)
+    all_tool_map.update(plugin_map)
+    SAFE_TOOLS.update(plugin_safe)
+    ALWAYS_CONFIRM_TOOLS.update(plugin_always)
 
     state = {
         "model": config.get("model", "devstral-small-2"),
         "max_iterations": config.get("max_iterations", 15),
         "messages": [{"role": "system", "content": SYSTEM_PROMPT}],
+        "tools": all_tools,
+        "tool_map": all_tool_map,
     }
 
     # Check for AGENTS.md
@@ -103,8 +116,8 @@ def main():
             state["messages"] = run_turn(
                 state["messages"],
                 state["model"],
-                TOOLS,
-                TOOL_MAP,
+                state["tools"],
+                state["tool_map"],
             )
         except KeyboardInterrupt:
             print()
